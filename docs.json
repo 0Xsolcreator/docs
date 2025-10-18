@@ -17,6 +17,11 @@
             "group": "Introduction",
             "expanded": true,
             "pages": ["index"]
+          },
+          {
+            "group": "Mobile Wallet Adapter",
+            "expanded": true,
+            "pages": ["/mwa/setup"]
           }
         ]
       }

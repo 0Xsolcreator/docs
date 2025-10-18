@@ -1,0 +1,138 @@
+---
+title: "Setup your project"
+---
+
+Before proceeding get setup a basic expo project. Or you can follow me to setup a production-ready Boilerplate project
+by Infinite Red Team. 
+
+```bash
+npx ignite-cli@latest new solana-mwa-starter 
+```
+
+This Boilerplate code will provide you with a predefined project structure with standard packages already configured. 
+Let us just leverage the existing setup and ignore the rest as they are not relevant to our tutorial.
+
+### What is Mobile Wallet Adapter?
+
+Well, It is a protocol that allows mobile apps to connect to solana wallets that implement the MWA protocol. In simple terms 
+you can interact with wallets that support MWA specification from your mobile app and perform actions like signing transactions &
+messages, SIWS ...
+
+### How are we going to do it?
+
+1. We will use a solana js SDK called [kit](https://www.solanakit.com/docs) to create generic hooks that can accepts transactions & messages 
+and make it interact with wallet.
+
+2. On top of these, we’ll build signers to simplify working with transaction instructions, similar to how you would with `generateKeyPairSigner`.
+
+### Setup Kit Client
+
+Install kit package
+
+<CodeGroup>
+```bash npm
+npm install @solana/kit
+```
+
+```bash yarn
+yarn add @solana/kit
+```
+</CodeGroup>
+
+Now, let’s create a folder in services dir called **kit** and create a file called `client.tsx` and add the following code
+
+```tsx services/kit/client.tsx expandable wrap
+
+import { Rpc, RpcSubscriptions, SolanaRpcApi, SolanaRpcSubscriptionsApi, createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
+import { createContext, useContext, useMemo, ReactNode } from 'react';
+
+export type Client = {
+    rpc: Rpc<SolanaRpcApi>;
+    rpcSubscriptions: RpcSubscriptions<SolanaRpcSubscriptionsApi>;
+};
+
+export interface ClientContextValue {
+    rpc: Rpc<SolanaRpcApi>
+    rpcSubscriptions: RpcSubscriptions<SolanaRpcSubscriptionsApi>
+}
+
+export interface KitClientProviderProps {
+    children: ReactNode;
+    rpcEndpoint?: string;
+    wsEndpoint?: string;
+}
+
+const KitClientContext = createContext<ClientContextValue | undefined>(undefined);
+
+function createClient(rpcEndpoint = 'http://127.0.0.1:8899', wsEndpoint = 'ws://127.0.0.1:8900'): Client {
+    return {
+        rpc: createSolanaRpc(rpcEndpoint),
+        rpcSubscriptions: createSolanaRpcSubscriptions(wsEndpoint),
+    };
+}
+
+export function KitClientProvider({ 
+    children, 
+    rpcEndpoint = 'https://devnet.helius-rpc.com', 
+    wsEndpoint = 'wss://devnet.helius-rpc.com' 
+}: KitClientProviderProps) {
+    const client = useMemo(() => createClient(rpcEndpoint, wsEndpoint), [rpcEndpoint, wsEndpoint]);
+    
+    const contextValue = useMemo(() => ({
+        rpc: client.rpc,
+        rpcSubscriptions: client.rpcSubscriptions,
+    }), [client]);
+
+    return (
+        <KitClientContext.Provider value={contextValue}>
+            {children}
+        </KitClientContext.Provider>
+    );
+}
+
+export function useKitClient(): ClientContextValue {
+    const context = useContext(KitClientContext);
+    if (!context) {
+        throw new Error('useKitClient must be used within a KitClientProvider');
+    }
+    return context;
+}
+
+```
+
+All we are doing here is creating RPC and RPC subscriptions objects and using context provider to reuse 
+them throughout our application. Actually we wont be needing rpc subscriptions object, but I just added it to make 
+the code look similar to the [official kit docs](https://www.solanakit.com/docs/getting-started/setup#create-a-client-object).
+
+Now go to root file (in my case its `_Layout.tsx`) and wrap your app with `KitClientProvider`
+
+```tsx app/_layout.tsx wrap highlight={1,11,20}
+import { KitClientProvider } from "@/services/kit/client"
+
+///
+
+export default function Root() {
+
+    /// 
+
+    return (
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+        <KitClientProvider>
+          <ThemeProvider>
+            <KeyboardProvider>
+              <GestureHandlerRootView>
+                <Slot />
+                <Toaster position="top-center" richColors={true} />
+              </GestureHandlerRootView>
+            </KeyboardProvider>
+          </ThemeProvider>
+        </KitClientProvider>
+    </SafeAreaProvider>
+  )
+}
+```
+
+<Note>
+   If you have any hard time following the steps or fell that my grammar is not good enough, you can always
+   refer to the complete code [github repo](https://github.com/0Xsolcreator/react-native-templates/tree/master/ignite-solana-starter) 
+</Note>
