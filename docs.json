@@ -21,7 +21,7 @@
           {
             "group": "Mobile Wallet Adapter",
             "expanded": true,
-            "pages": ["/mwa/setup"]
+            "pages": ["/mwa/setup","/mwa/connect-and-disconnect","/mwa/siws"]
           }
         ]
       }

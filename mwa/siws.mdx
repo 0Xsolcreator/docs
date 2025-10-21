@@ -1,0 +1,126 @@
+---
+title: "Sign In With Solana (SIWS)"
+---
+
+<Panel><Danger>The verification part of this guide is not complete.</Danger></Panel>
+
+When a user connects his wallet to a dApp, the dApp gets access to the wallet address and type of wallet being used.
+
+Just connecting to a wallet doesn't you the guarantee that the user owns the wallet.
+Because anyone create a dummy wallet that pretends to by an actual wallet with an address. To prevent this we generally use a
+standard called Sign In With Solana (SIWS) introduced by [phantom](https://github.com/phantom/sign-in-with-solana#introduction).
+
+Here on connecting a wallet, the user is presented with a message in his wallet to sign. And this signed message returned by the wallet 
+will be verified by the dApp to ensure ownership of the wallet.
+
+### Implement SIWS using MWA
+
+1. Establish a MWA session.
+
+```ts services/mwa/useSignIn.ts twoslash expandable
+type input = Readonly<{
+    cluster: `solana:${string}`;
+    identity: Readonly<{
+        name?: string;
+        uri?: `https://${string}`;
+        icon?: string;
+    }>;
+    sign_in_payload: Readonly<{
+        domain: string;
+        statement: string;
+        uri: `https://${string}`;
+    }>;
+}>;
+
+type Output = (SolanaSignInOutput & Readonly<{ auth_token: string }>) | null;
+
+export function useSignIn(): (input: input) => Promise<Output> {
+    return useCallback(async (input: input): Promise<Output> => {
+        return await transact(async (wallet: KitMobileWallet) => {
+            const signIn = await wallet.authorize({
+                chain: input.cluster,
+                identity: input.identity,
+                sign_in_payload: input.sign_in_payload,
+            })
+
+            if (!signIn.sign_in_result) {
+                return null
+            }
+        })
+    }, [])
+};
+```
+
+To sign in a user on connecting the wallet we need to pass the `sign_in_payload` with the message to sign when calling the `authorize` method.
+Now this call will return us an additional filed `sign_in_result` containing the metadata to verify the signature.
+
+2. Verify the signed message.
+```ts services/mwa/useSignIn.ts twoslash lines
+import { verifySignIn } from "@solana/wallet-standard-util"; // [!code ++]
+
+export function useSignIn(): (input: input) => Promise<Output> {
+    return useCallback(async (input: input): Promise<Output> => {
+        return await transact(async (wallet: KitMobileWallet) => {
+            const signIn = await wallet.authorize({
+                chain: input.cluster,
+                identity: input.identity,
+                sign_in_payload: input.sign_in_payload,
+            })
+
+            if (!signIn.sign_in_result) {
+                return null
+            }
+            
+            const serialisedInput = createSignInInput(input.sign_in_payload) // [!code ++]
+            const serialisedOutput = transformSignInResult(signIn.sign_in_result, input.cluster) // [!code ++]
+            
+            const isValid = verifySignIn(serialisedInput, serialisedOutput) // [!code ++]
+            console.log("info: verification result", isValid) // [!code ++]
+            return isValid ? {...serialisedOutput, auth_token: signIn.auth_token} : null // [!code ++]
+        })
+    }, [])
+}
+```
+
+Here we added methods to extract the input message metadata that we passed for signing and the output that we go from MWA and 
+transform it in the form that we can pass to the `verifySignIn` method from `@solana/wallet-standard-util` package to verify the signed message.
+
+3. The Helper Methods
+
+```ts services/mwa/useSignIn.ts twoslash
+
+function createSignInInput(payload: input['sign_in_payload']): SolanaSignInInput {
+    return {
+        domain: payload.domain,
+        statement: payload.statement,
+        uri: payload.uri,
+    }
+}
+
+function transformSignInResult(
+    result: NonNullable<Awaited<ReturnType<KitMobileWallet['authorize']>>['sign_in_result']>,
+    cluster: `solana:${string}`
+): SolanaSignInOutput {
+    const decodedAddress = getPublicKeyFromAddress(result.address);
+    
+    return {
+        account: {
+            publicKey: toUint8Array(result.address),
+            address: decodedAddress,
+            chains: [cluster],
+            features: []
+        },
+        signature: toUint8Array(result.signature),
+        signedMessage: toUint8Array(result.signed_message),
+    }
+}
+
+function getPublicKeyFromAddress(base64Address: Base64EncodedAddress): Address {
+    const publicKeyByteArray = toUint8Array(base64Address)
+    const addressDecoder = getAddressDecoder()
+    return addressDecoder.decode(publicKeyByteArray)
+  }
+```
+
+Though the flow is correct, for some reason the `verifySignIn` method is returns false on every occasion. But the same message can we verified
+by creating a custom replica of the `verifySignIn` method. So there might be some issue with the method itself.
