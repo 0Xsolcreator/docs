@@ -1,0 +1,122 @@
+---
+title: "Sign Transaction"
+---
+
+In this guide we will look at how to sign a transaction using mobile wallet by implementing a generic hook to interact with MWA and create a signer that can be
+used to work with Kit SDK. 
+
+## Signing Transactions
+I'll skip most of the details here as we have already covered establishing a MWA session and authorizing it in the previous guides.
+
+Here is a snippet of a hook returning a abortable promise for signing transactions. We leverage `signTransactions` method provided by MWA to sign the multiple transactions
+in parallel.
+
+```ts services/mwa/useSignTransaction.ts twoslash wrap
+import { KitMobileWallet, transact } from "@solana-mobile/mobile-wallet-adapter-protocol-kit";
+import { TransactionModifyingSignerConfig } from "@solana/kit";
+import { Transaction } from "@solana/transactions";
+import { getAbortablePromise } from "@solana/promises";
+
+type SignTransactionInput = Transaction[]
+
+type SignTransactionOutput = {
+    transactions: Transaction[],
+    auth_token: string
+}
+
+export function useSignTransaction(authInput: AuthorizeInput): (input: SignTransactionInput, config?: TransactionModifyingSignerConfig) => Promise<SignTransactionOutput> {
+    return useCallback(async (input: SignTransactionInput, config?: TransactionModifyingSignerConfig) => {
+        const { abortSignal } = config ?? {};
+
+        abortSignal?.throwIfAborted();
+
+        const promise = transact(async (wallet: KitMobileWallet) => {
+            const authResult = await wallet.authorize(authInput)
+            const signedTransaction = await wallet.signTransactions({transactions: input})
+            
+            return {transactions: signedTransaction, auth_token: authResult.auth_token}
+        })
+
+        return getAbortablePromise(promise, abortSignal);
+    },[])
+}
+```
+
+## Creating a TransactionSigner
+
+Now that we have a hook for signing transactions, we can create a `TransactionSigner` abstraction for it. Again similar to the case of message signer, we have 2 signers here,
+[`TransactionPartialSigner`](https://www.solanakit.com/api/type-aliases/TransactionPartialSigner) and [`TransactionModifyingSigner`](https://www.solanakit.com/api/type-aliases/TransactionModifyingSigner).
+We will implement modifying signer in this guide, but the partial signer can be implemented in a similar way.
+
+```ts mwa/SignTransactionSigner.ts twoslash highlight={29-38,21-23}
+import { Address, Transaction, TransactionModifyingSignerConfig, TransactionSigner, TransactionWithLifetime } from "@solana/kit";
+import { useSignTransaction } from "./useSignTransaction";
+
+type AuthorizeInput = Readonly<{
+    chain: `solana:${string}`;
+    identity: Readonly<{
+        name?: string;
+        uri?: `https://${string}`;
+        icon?: string;
+    }>;
+    auth_token?: string;
+}>;
+
+export function useTransactionSigner(authInput: AuthorizeInput, signerAddress: Address): TransactionSigner {
+    const signTransaction = useSignTransaction(authInput)
+
+    return {
+        address: signerAddress,
+        modifyAndSignTransactions: async <T extends Transaction>(transactions: readonly T[], config?: TransactionModifyingSignerConfig): Promise<readonly T[]> => {
+            // Validate for Lifetime Constraint 
+            if (!allTransactionsHaveLifetimeConstraint(transactions)) {
+                throw new Error('All transactions must have lifetimeConstraint property');
+            }
+
+            const result = await signTransaction([...transactions], config);
+        }
+    }
+}
+
+function hasLifetimeConstraint(transaction: Transaction): transaction is Transaction & TransactionWithLifetime {
+    return 'lifetimeConstraint' in transaction;
+}
+
+function allTransactionsHaveLifetimeConstraint<T extends Transaction>(transactions: readonly T[]): transactions is readonly (T & TransactionWithLifetime)[] {
+    return transactions.every(hasLifetimeConstraint);
+}
+
+```
+
+Everything is similar to our previous implementation of message signer. What is new here is the validation for `lifetimeConstraint` property on 
+the transactions. This is important because [`sendAndConfirmTransaction`](https://www.solanakit.com/api/functions/sendAndConfirmTransactionFactory) 
+method from Kit SDK for sending transactions requires this property to be set on the signed transaction in order to track its confirmation status. 
+
+The signed transactions returned from MWA do not have this property set, so we need to merge the signed transaction with the original transaction input to retain this property.
+
+```ts ts/services/mwa/useSignTransaction.ts lines wrap
+export function useTransactionSigner(authInput: AuthorizeInput, signerAddress: Address): TransactionSigner {
+    const signTransaction = useSignTransaction(authInput)
+
+    return {
+        address: signerAddress,
+        modifyAndSignTransactions: async <T extends Transaction>(transactions: readonly T[], config?: TransactionModifyingSignerConfig): Promise<readonly T[]> => {
+            // Validate for Lifetime Constraint 
+            if (!allTransactionsHaveLifetimeConstraint(transactions)) {
+                throw new Error('All transactions must have lifetimeConstraint property');
+            }
+
+            const result = await signTransaction([...transactions], config);
+
+            const signedTransactionsWithLifetime = result.transactions.map((signedTx, index) => { // [!code ++:6]
+                const originalTx = transactions[index] as Transaction & TransactionWithLifetime;
+                return mergeSignedTransaction(originalTx, signedTx);
+            });
+
+            return signedTransactionsWithLifetime as readonly T[];
+        }
+    }
+}
+```
+
+Alright! Now we have successfully created a `TransactionModifyingSigner` that can be used with kit SDK to sign transactions using MWA.

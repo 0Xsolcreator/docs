@@ -48,6 +48,7 @@ That’s why this flow is considered the connect flow.
 ### Disconnecting from mobile Wallet
 
 To disconnect, you just need to pass the `auth_token` to the wallet adapter’s `deauthorize` method.  
+
 Let’s create a hook called `useDisconnect`, which returns a memoized callback function that deauthorizes 
 the wallet using the provided `auth_token`.
 

@@ -1,0 +1,119 @@
+---
+title: "Sign and Send Transaction"
+---
+
+When we create a hook for signing transactions, we returned an array of signed transactions that will be sent to the network separately.
+However, in many cases, we want to sign and send the transactions in one go. 
+
+In this guide, we will implement a hook for signing and sending transactions using MWA and create a signer abstraction to make it compatible to work with Kit SDK.
+
+## Signing and Sending Transactions
+
+We will write a abortable promise that gets the transaction instructions in an array input and return the signatures of the 
+signed and sent transactions. 
+
+MWA provides a default method `signAndSendTransactions` to achieve this.
+```ts services/mwa/useSignAndSendTransaction.ts twoslash wrap
+import type { KitMobileWallet } from "@solana-mobile/mobile-wallet-adapter-protocol-kit"
+import { transact } from "@solana-mobile/mobile-wallet-adapter-protocol-kit"
+import type { SignatureBytes, TransactionSendingSignerConfig } from "@solana/kit"
+import type { Transaction } from "@solana/transactions"
+import { getAbortablePromise } from "@solana/promises"
+
+type AuthorizeInput = Readonly<{
+    chain: `solana:${string}`;
+    identity: Readonly<{
+        name?: string;
+        uri?: `https://${string}`;
+        icon?: string;
+    }>;
+    auth_token?: string;
+}>;
+
+type Input = Readonly<{
+  transactions: readonly Transaction[]
+  options?: Readonly<{
+    minContextSlot?: number
+    commitment?: string
+    skipPreflight?: boolean
+    maxRetries?: number
+    waitForCommitmentToSendNextTransaction?: boolean
+  }>
+}>
+
+type Output = Readonly<{
+  signatures: readonly SignatureBytes[]
+  auth_token: string
+}>
+
+export function useSignAndSendTransaction(
+  authInput: AuthorizeInput,
+): (input: Input, config?: TransactionSendingSignerConfig) => Promise<Output> {
+  return useCallback(
+    async (input: Input, config?: TransactionSendingSignerConfig): Promise<Output> => {
+      const { abortSignal } = config ?? {}
+
+      abortSignal?.throwIfAborted()
+
+      const promise = transact(async (wallet: KitMobileWallet): Promise<Output> => {
+        const authResult = await wallet.authorize(authInput)
+
+        const signAndSendTransactionsInput = {
+          transactions: [...input.transactions],
+          ...input.options,
+        }
+
+        const signatures = await wallet.signAndSendTransactions(signAndSendTransactionsInput)
+        return { signatures, auth_token: authResult.auth_token }
+      })
+
+      return getAbortablePromise(promise, abortSignal)
+    },
+    [authInput],
+  )
+}
+```
+
+The above snippet is exactly the same as the signing transaction hook, except that we will be returning signatures 
+of sent transactions instead of returning signed transactions.
+
+## Creating a TransactionSendingSigner
+
+Kit SDK provides [`TransactionSendingSigner`](https://www.solanakit.com/api/type-aliases/TransactionSendingSigner) interface for signers that can sign and send transactions in one go.
+
+Here is how we can implement it to work with our hook.
+
+```ts mwa/TransactionSendingSigner.ts twoslash wrap
+import { Address, Transaction, TransactionSendingSigner, TransactionSendingSignerConfig } from "@solana/kit"
+import { useSignAndSendTransaction } from "./useSignAndSendTransaction"
+
+type AuthorizeInput = Readonly<{
+    chain: `solana:${string}`;
+    identity: Readonly<{
+        name?: string;
+        uri?: `https://${string}`;
+        icon?: string;
+    }>;
+    auth_token?: string;
+}>;
+
+export function useTransactionSendingSigner(authInput: AuthorizeInput, signerAddress: Address): TransactionSendingSigner {
+    const signAndSendTransaction = useSignAndSendTransaction(authInput)
+
+    return {
+        address: signerAddress,
+        signAndSendTransactions: async (transactions: Transaction[], config?: TransactionSendingSignerConfig) => {
+            return (await signAndSendTransaction({ transactions }, config)).signatures;
+        }
+    }
+}
+```
+
+<Card
+  title="Example Implementation"
+  href="https://github.com/0Xsolcreator/react-native-templates/blob/master/ignite-solana-starter/src/screens/HomeScreen.tsx"
+  arrow="true"
+  cta="Example Template"
+>
+  This marks the end of the MWA with KIT guide. If you are looking for an implemented example, check out this repo.
+</Card>

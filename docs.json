@@ -3,9 +3,9 @@
   "theme": "linden",
   "name": "CrEatoR Space",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#9945FF",
+    "light": "#14F195",
+    "dark": "#9945FF"
   },
   "favicon": "/favicon.svg",
   "navigation": {
@@ -19,9 +19,9 @@
             "pages": ["index"]
           },
           {
-            "group": "Mobile Wallet Adapter",
+            "group": "Mobile Wallet Adapter with Kit",
             "expanded": true,
-            "pages": ["/mwa/setup","/mwa/connect-and-disconnect","/mwa/siws"]
+            "pages": ["/mwa/setup","/mwa/connect-and-disconnect","/mwa/siws","/mwa/sign-message","/mwa/sign-transaction","/mwa/sign-and-send-transaction"]
           }
         ]
       }

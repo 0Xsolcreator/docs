@@ -82,10 +82,11 @@ export function useSignIn(): (input: input) => Promise<Output> {
 }
 ```
 
-Here we added methods to extract the input message metadata that we passed for signing and the output that we go from MWA and 
-transform it in the form that we can pass to the `verifySignIn` method from `@solana/wallet-standard-util` package to verify the signed message.
+Here, we added methods to extract the input message metadata that we passed for signing, and the output we got from MWA.
+We then transform them into a format that can be passed to the verifySignIn method from the `@solana/wallet-standard-util` 
+package to verify the signed message.
 
-3. The Helper Methods
+3. The Helper Methods We used
 
 ```ts services/mwa/useSignIn.ts twoslash
 
@@ -122,5 +123,5 @@ function getPublicKeyFromAddress(base64Address: Base64EncodedAddress): Address {
   }
 ```
 
-Though the flow is correct, for some reason the `verifySignIn` method is returns false on every occasion. But the same message can we verified
+Though the flow is correct, for some reason the `verifySignIn` method returns false on every occasion. But the same message can we verified
 by creating a custom replica of the `verifySignIn` method. So there might be some issue with the method itself.

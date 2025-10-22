@@ -1,0 +1,170 @@
+---
+title: "Sign Message"
+---
+
+In this guide, we'll create a simple hook for signing messages with MWA, and then build a `MessageModifyingSigner` 
+so you can easily use it with the [kit](https://www.solanakit.com/docs) SDK.
+
+## Create a hook for signing messages
+
+1. To sign a message, we need the user's wallet address and the message payload. First, we 
+establish and authorize an MWA session. Then, we call the `signMessages` method to sign the payloads(messages).
+
+```ts services/mwa/useSignMessage.ts twoslash
+type Input = Readonly<{
+    addresses: readonly string[];
+    payloads: readonly Uint8Array[];
+}>;
+
+type Output = Readonly<{
+    signed_payloads: readonly Uint8Array[];
+    auth_token: string;
+}>;
+
+type AuthorizeInput = Readonly<{
+    chain: `solana:${string}`;
+    identity: Readonly<{
+        name?: string;
+        uri?: `https://${string}`;
+        icon?: string;
+    }>;
+    auth_token?: string;
+}>;
+
+export function useSignMessage(authInput: AuthorizeInput): 
+    (input: Input) => Promise<Output> {
+    return useCallback(async (input: Input): Promise<Output> => {
+        const promise = transact(async (wallet: KitMobileWallet): Promise<Output> => {
+            const authResult = await wallet.authorize(authInput);
+            const signedMessages = await wallet.signMessages({
+                addresses: [...input.addresses],
+                payloads: [...input.payloads],
+            });
+            return {
+                signed_payloads: signedMessages,
+                auth_token: authResult.auth_token,
+            };
+        });
+
+        return promise;
+    }, [authInput]);
+}
+```
+
+If you take a look at the above snippet, you'll notice that input for authorization is passed as a parameter to the hook, which is quite
+different from the previous connect hooks that we created. This is because in a general dApp we perform signing actions after the user has connected
+their wallet. 
+
+So I feel like it is kinda redundant to pass them again and again. It would be better if we could eventually
+remove the need to pass authorization input to the signing hook at all, but for now this will do.
+
+2. **Add an option to abort the operation :** this is a small inspiration from [kit](https://www.solanakit.com/api/functions/getAbortablePromise) 
+to run abortable sign message operations. 
+
+```ts services/mwa/useSignMessage.ts twoslash lines
+import { getAbortablePromise } from '@solana/promises'; // [!code ++]
+
+export function useSignMessage(authInput: AuthorizeInput): 
+    (input: Input) => Promise<Output> { // [!code --:2]
+    return useCallback(async (input: Input): Promise<Output> => {
+    (input: Input, abortSignal?: AbortSignal) => Promise<Output> { // [!code ++:2]
+    return useCallback(async (input: Input, abortSignal?: AbortSignal): Promise<Output> => {
+        const promise = transact(async (wallet: KitMobileWallet): Promise<Output> => {
+            const authResult = await wallet.authorize(authInput);
+            const signedMessages = await wallet.signMessages({
+                addresses: [...input.addresses],
+                payloads: [...input.payloads],
+            });
+            return {
+                signed_payloads: signedMessages,
+                auth_token: authResult.auth_token,
+            };
+        });
+        
+        return promise; // [!code --]
+        return getAbortablePromise(promise, abortSignal); // [!code ++]
+    }, [authInput]);
+}
+```
+[AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal) is a web API for aborting asynchronous operations (DOM request). 
+Here we are using `getAbortablePromise` utility from `@solana/promises` to automatically stop the operation when the abort signal is triggered.
+
+<Warning>AbortSignal is not natively supported by RN. So you will have to manually define the abort signal and abort functions in order to use this functionality.</Warning>
+
+## Create the Message Signer 
+
+We can leverage `MessagePartialSigner` and `MessageModifyingSigner` [abstractions](https://www.solanakit.com/docs/concepts/signers#types-of-signers)
+from kit to create signers that can sign messages. But to make them compatible with MWA we need to transform input from the signer method, 
+So let's use `MessageModifyingSigner`.
+
+```ts services/mwa/MessageModifyingSigner.ts twoslash wrap
+import { Address, MessageModifyingSigner, MessageModifyingSignerConfig, SignableMessage, SignatureBytes } from "@solana/kit";
+import { useSignMessage } from "./useSignMessage";
+
+type AuthorizeInput = Readonly<{
+    chain: `solana:${string}`;
+    identity: Readonly<{
+        name?: string;
+        uri?: `https://${string}`;
+        icon?: string;
+    }>;
+    auth_token?: string;
+}>;
+
+export function useMessageSigner(authInput: AuthorizeInput, signerAddress: Address): MessageModifyingSigner {
+    const signMessage = useSignMessage(authInput)
+
+    return {
+        address: signerAddress,
+        modifyAndSignMessages: async (messages: readonly SignableMessage[], config?: MessageModifyingSignerConfig) => {
+            const { abortSignal } = config ?? {};
+
+            abortSignal?.throwIfAborted();
+
+            const addresses = [signerAddress];
+            const payloads = messages.map((message) => message.content);
+        }
+    }
+}
+```
+
+Above we have created a function `useMessageSigner` that accepts AuthorizeInput, Address and returns a `MessageModifyingSigner` instance. 
+
+Now we need to transform the messages into the input format required by our `useSignMessage` hook by extracting the addresses and payloads.
+Once this is done we can proceed in executing the sign message operation.
+
+To create abortable operations, we pass the Abort signal in the config parameter of `modifyAndSignMessages` method. This method will check the 
+status of the abort signal and execute our sign messages hook.
+
+```ts services/mwa/MessageModifyingSigner.ts twoslash lines wrap
+export function useMessageSigner(authInput: AuthorizeInput, signerAddress: Address): MessageModifyingSigner {
+    const signMessage = useSignMessage(authInput)
+
+    return {
+        address: signerAddress,
+        modifyAndSignMessages: async (messages: readonly SignableMessage[], config?: MessageModifyingSignerConfig) => {
+            const { abortSignal } = config ?? {};
+
+            abortSignal?.throwIfAborted();
+
+            const addresses = [signerAddress];
+            const payloads = messages.map((message) => message.content);
+            
+            const result = await signMessage({ // [!code ++:11]
+                addresses: addresses,
+                payloads,
+            }, abortSignal);
+
+            return messages.map((message, index) => ({
+                content: message.content,
+                signatures: {
+                    [signerAddress]: result.signed_payloads[index] as SignatureBytes
+                } as Readonly<Record<Address, SignatureBytes>>
+            })) as readonly SignableMessage[];
+        }
+    }
+}
+```
+
+The `signMessage` method from MWA modifies the output structure of the signed messages. 
+So we need to transform it back to the format expected by the `MessageModifyingSigner`.

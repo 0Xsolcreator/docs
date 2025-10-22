@@ -2,7 +2,7 @@
 title: "Setup your project"
 ---
 
-Before proceeding get setup a basic expo project. Or you can follow me to setup a production-ready Boilerplate project
+Before proceeding setup a basic expo project. Or you can follow me to setup a production-ready Boilerplate project
 by Infinite Red Team. 
 
 ```bash
@@ -20,12 +20,12 @@ messages, SIWS ...
 
 ### How are we going to do it?
 
-1. We will use a solana js SDK called [kit](https://www.solanakit.com/docs) to create generic hooks that can accepts transactions & messages 
-and make it interact with wallet.
+1. We will use a solana js SDK called [kit](https://www.solanakit.com/docs) to create generic hooks that can accept transactions & messages 
+and make it interact with mobile wallets.
 
-2. On top of these, we’ll build signers to simplify working with transaction instructions, similar to how you would with `generateKeyPairSigner`.
+2. On top of these, we’ll build signers to simplify working with Kit SDK, similar to how you would with `generateKeyPairSigner`.
 
-### Setup Kit Client
+## Setup Kit Client
 
 Install kit package
 
@@ -37,9 +37,13 @@ npm install @solana/kit
 ```bash yarn
 yarn add @solana/kit
 ```
+
+```bash bun
+bun add @solana/kit
+```
 </CodeGroup>
 
-Now, let’s create a folder in services dir called **kit** and create a file called `client.tsx` and add the following code
+Now, let’s create a folder in services dir called **kit** and create a file called `client.tsx` inside it and add the following code
 
 ```tsx services/kit/client.tsx expandable wrap
 
@@ -136,3 +140,33 @@ export default function Root() {
    If you have any hard time following the steps or fell that my grammar is not good enough, you can always
    refer to the complete code [github repo](https://github.com/0Xsolcreator/react-native-templates/tree/master/ignite-solana-starter) 
 </Note>
+
+## Install Mobile Wallet Adapter
+
+Install `@solana-mobile/mobile-wallet-adapter-protocol`, this is the core package that provides the MWA protocol implementation with react native
+<CodeGroup>
+```bash npm
+npm install @solana-mobile/mobile-wallet-adapter-protocol   
+```
+```bash yarn
+yarn add @solana-mobile/mobile-wallet-adapter-protocol
+```
+```bash bun
+bun add @solana-mobile/mobile-wallet-adapter-protocol
+```
+</CodeGroup>
+
+Next, Install the wrapper of MWA for Kit SDK called `@solana-mobile/mobile-wallet-adapter-kit`. This package provides us typed utilities 
+making it easier to work with MWA and Kit SDK.
+
+<CodeGroup>
+```bash npm
+npm install @solana-mobile/mobile-wallet-adapter-kit
+```
+```bash yarn
+yarn add @solana-mobile/mobile-wallet-adapter-kit
+```
+```bash bun
+bun add @solana-mobile/mobile-wallet-adapter-kit
+```
+</CodeGroup>
